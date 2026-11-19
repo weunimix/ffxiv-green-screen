@@ -1,0 +1,14 @@
+<Project>
+  <!--
+    五个工程共用的编译默认值。这里只放每个工程都成立的属性：
+    工程特有的 TargetFramework、PlatformTarget、AllowUnsafeBlocks、OutputType 留在各自 csproj。
+
+    注意：修改本文件会同时影响插件本体和四个离线检查工程。
+  -->
+  <PropertyGroup>
+    <!-- 固定语言版本，避免升级 SDK 时默认语言版本随之变化。 -->
+    <LangVersion>14.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>

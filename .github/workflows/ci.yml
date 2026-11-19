@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+  # 插件按 Dalamud API 15 编译。程序集取自 dalamud-distrib 的稳定发布，按提交固定，
+  # 避免 latest.zip 随上游升级漂移。升级 API 时连同 RoundTableStudio.json 一起改。
+  DALAMUD_DISTRIB_COMMIT: 74c1ebada2e4b2036d39c2f1ff52f1d4b95180fa
+
+jobs:
+  checks:
+    name: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: 进退棚与状态恢复（CaptureChecks）
+        run: dotnet run --project plugin/checks/CaptureChecks.csproj -c Release
+      - name: 抠图与调色（MatteChecks）
+        run: dotnet run --project plugin/matte-checks/MatteChecks.csproj -c Release
+      - name: 导出流程（ExportFlowChecks）
+        run: dotnet run --project plugin/export-flow-checks/ExportFlowChecks.csproj -c Release
+
+  plugin-build:
+    name: plugin-build
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: 取 Dalamud API 15 程序集
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $zip = Join-Path $env:RUNNER_TEMP 'dalamud-distrib.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'dalamud'
+          $url = "https://raw.githubusercontent.com/goatcorp/dalamud-distrib/$env:DALAMUD_DISTRIB_COMMIT/latest.zip"
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -LiteralPath $zip -DestinationPath $dir
+          $required = 'Dalamud', 'Dalamud.Bindings.ImGui', 'FFXIVClientStructs', 'Lumina',
+            'Lumina.Excel', 'InteropGenerator.Runtime', 'HexaGen.Runtime'
+          $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $dir "$_.dll")) })
+          if ($missing) { throw "Dalamud 程序集缺失：$($missing -join '、')" }
+          $version = (Get-Item -LiteralPath (Join-Path $dir 'Dalamud.dll')).VersionInfo.FileVersion
+          Write-Host "Dalamud.dll $version"
+          if (-not $version.StartsWith('15.')) { throw "需要 API 15 的 Dalamud.dll，取到的是 $version" }
+          "DALAMUD_LIB_PATH=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: 编译插件（Release）
+        shell: pwsh
+        run: >-
+          dotnet build plugin/RoundTableStudio -c Release
+          "-p:DalamudLibPath=$env:DALAMUD_LIB_PATH"
+          -p:DebugType=None -p:DebugSymbols=false
+          -p:IncludeSourceRevisionInInformationalVersion=false
+      - name: 角色技能单帧（SkillChecks）
+        shell: pwsh
+        run: dotnet run --project plugin/skill-checks/SkillChecks.csproj -c Release "-p:DalamudLibPath=$env:DALAMUD_LIB_PATH"
+      - name: 透明导出（Test-AlphaExport）
+        shell: pwsh
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./tools/checks/Test-AlphaExport.ps1
+      - name: 保存插件产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: RoundTableStudio
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            plugin/RoundTableStudio/bin/Release/net10.0-windows/RoundTableStudio.dll
+            plugin/RoundTableStudio/bin/Release/net10.0-windows/RoundTableStudio.json
+            plugin/RoundTableStudio/bin/Release/net10.0-windows/RoundTableStudio.deps.json

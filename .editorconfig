@@ -1,0 +1,29 @@
+# 编辑器与格式化器的默认值。本文件是根配置，不再向上查找。
+# 这里的取值与仓库现状一致，不引入新的格式要求。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# C# 和 PowerShell 在工作区里保持 CRLF，提交进仓库时由 .gitattributes 归一化为 LF。
+[*.{cs,ps1,psm1}]
+end_of_line = crlf
+
+# Windows PowerShell 5.1 会把无 BOM 的 UTF-8 当作 ANSI 解码，中文注释会导致解析失败。
+[*.{ps1,psm1}]
+charset = utf-8-bom
+
+[*.{csproj,props,targets}]
+indent_size = 2
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+# Markdown 行尾两个空格是有意的换行语义，不能裁剪。
+[*.md]
+trim_trailing_whitespace = false
